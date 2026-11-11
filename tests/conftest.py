@@ -23,16 +23,14 @@ def client(predictor):
 
 
 @pytest.fixture()
-def valid_trip():
-    today = date.today()
+def valid_search():
     return {
-        "origin": "BER",
+        "origin": "Berlin (BER)",
         "destination": "LHR",
-        "travel_date": (today + timedelta(days=30)).isoformat(),
-        "booking_date": today.isoformat(),
-        "airline": "SC",
+        "travel_date": (date.today() + timedelta(days=30)).isoformat(),
         "cabin": "economy",
-        "stops": "0",
-        "time_slot": "morning",
+        "airline": "any",
+        "stops": "any",
+        "time_slot": "any",
         "passengers": "2",
     }

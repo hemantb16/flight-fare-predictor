@@ -20,7 +20,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OrdinalEncoder
 
 from .features import CATEGORICAL_FEATURES, FEATURES, NUMERIC_FEATURES
 from .model import ARTIFACT_DIR, METRICS_PATH, MODEL_PATH, PROJECT_ROOT
@@ -31,23 +31,31 @@ SEED = 42
 
 
 def build_pipeline() -> Pipeline:
+    # Categories are ordinal-encoded and handled natively by the gradient-boosting
+    # model, which is faster and more accurate here than one-hot encoding.
     preprocess = ColumnTransformer(
         [
-            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), CATEGORICAL_FEATURES),
+            (
+                "cat",
+                OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1),
+                CATEGORICAL_FEATURES,
+            ),
             ("num", "passthrough", NUMERIC_FEATURES),
         ]
     )
+    n_cat = len(CATEGORICAL_FEATURES)
     model = HistGradientBoostingRegressor(
-        max_iter=600,
+        max_iter=900,
         learning_rate=0.08,
-        max_leaf_nodes=48,
+        max_leaf_nodes=63,
         l2_regularization=0.1,
+        categorical_features=[i < n_cat for i in range(n_cat + len(NUMERIC_FEATURES))],
         random_state=SEED,
     )
     return Pipeline([("preprocess", preprocess), ("model", model)])
 
 
-def train(n_rows: int = 60_000) -> dict:
+def train(n_rows: int = 150_000) -> dict:
     started = time.perf_counter()
     print(f"Generating {n_rows:,} synthetic flights ...")
     df = generate_dataset(n_rows=n_rows, seed=SEED)
@@ -91,7 +99,7 @@ def train(n_rows: int = 60_000) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the flight fare model.")
     parser.add_argument("--if-missing", action="store_true", help="skip if a model already exists")
-    parser.add_argument("--rows", type=int, default=60_000, help="number of synthetic flights")
+    parser.add_argument("--rows", type=int, default=150_000, help="number of synthetic flights")
     args = parser.parse_args()
     if args.if_missing and MODEL_PATH.exists():
         print(f"Model already present at {MODEL_PATH.relative_to(PROJECT_ROOT)}; skipping training.")

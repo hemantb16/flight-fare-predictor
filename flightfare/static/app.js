@@ -1,45 +1,88 @@
-// Small progressive enhancements for the search form. The form works without JS.
+// Progressive enhancements for the search form. Everything also works without JS.
 (function () {
-  const origin = document.getElementById("origin");
-  const destination = document.getElementById("destination");
-  const swap = document.getElementById("swap");
-  const airline = document.getElementById("airline");
-  const cabin = document.getElementById("cabin");
-  const travel = document.getElementById("travel_date");
-  const booking = document.getElementById("booking_date");
-  const daysBefore = document.getElementById("days-before");
+  const $ = (id) => document.getElementById(id);
+  const origin = $("origin");
+  const destination = $("destination");
+  const airline = $("airline");
+  const cabin = $("cabin");
+  const travel = $("travel_date");
+  const routeHint = $("route-hint");
+  const daysHint = $("days-hint");
+  if (!origin || !destination) return;
 
-  if (swap && origin && destination) {
-    swap.addEventListener("click", () => {
-      [origin.value, destination.value] = [destination.value, origin.value];
-    });
+  const allAirlines = airline ? [...airline.options].map((o) => ({ value: o.value, text: o.text })) : [];
+
+  $("swap").addEventListener("click", () => {
+    [origin.value, destination.value] = [destination.value, origin.value];
+    refreshRoute();
+  });
+
+  // Select the whole value on focus so typing a new city is quick.
+  for (const input of [origin, destination]) {
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("change", refreshRoute);
   }
 
-  // Only enable cabin classes the selected airline actually sells.
-  // On first load an invalid choice is left alone so its error stays visible.
-  function syncCabins(adjust) {
-    if (!airline || !cabin) return;
-    const offered = airline.selectedOptions[0].dataset.cabins.split(",");
-    for (const opt of cabin.options) opt.disabled = !offered.includes(opt.value);
-    if (adjust && cabin.selectedOptions[0].disabled) cabin.value = offered[0];
+  function setAirlines(routeAirlines) {
+    if (!airline) return;
+    const current = airline.value;
+    const list = routeAirlines
+      ? [{ value: "any", text: "Any airline" }].concat(
+          routeAirlines.map((a) => ({
+            value: a.code,
+            text: a.name + (a.stops.includes(0) ? " · non-stop" : " · via hub"),
+          }))
+        )
+      : allAirlines;
+    airline.replaceChildren(...list.map((o) => new Option(o.text, o.value)));
+    airline.value = list.some((o) => o.value === current) ? current : "any";
   }
 
-  function updateDaysBefore() {
-    if (!travel || !booking || !daysBefore) return;
-    const t = Date.parse(travel.value);
-    const b = Date.parse(booking.value);
-    if (Number.isNaN(t) || Number.isNaN(b)) {
-      daysBefore.textContent = "";
-      return;
+  function setCabins(available) {
+    if (!cabin) return;
+    for (const opt of cabin.options) opt.disabled = available ? !available.includes(opt.value) : false;
+    if (cabin.selectedOptions[0] && cabin.selectedOptions[0].disabled) cabin.value = "economy";
+  }
+
+  let pending;
+  async function refreshRoute() {
+    const params = new URLSearchParams({ origin: origin.value, destination: destination.value });
+    const token = (pending = Symbol());
+    try {
+      const res = await fetch("/api/route?" + params);
+      const data = await res.json();
+      if (token !== pending) return;
+      // Normalise "hamburg" or "bkk" to the full "Hamburg (HAM)" label.
+      if (data.origin_label && document.activeElement !== origin) origin.value = data.origin_label;
+      if (data.destination_label && document.activeElement !== destination) destination.value = data.destination_label;
+      if (!data.airlines.length) {
+        routeHint.textContent = data.distance_km ? "No airline in our network flies this route." : "";
+        setAirlines(null);
+        setCabins(null);
+        return;
+      }
+      const n = data.airlines.length;
+      routeHint.textContent =
+        data.distance_km.toLocaleString("en") + " km · " + n + " airline" + (n === 1 ? "" : "s") +
+        " · " + (data.nonstop ? "non-stop available" : "connections only");
+      setAirlines(data.airlines);
+      setCabins(data.cabins);
+    } catch (_) {
+      routeHint.textContent = "";
     }
-    const days = Math.round((t - b) / 86400000);
-    daysBefore.textContent = days >= 0 ? `${days} day${days === 1 ? "" : "s"} before departure` : "";
-    travel.min = booking.value;
   }
 
-  airline && airline.addEventListener("change", () => syncCabins(true));
-  travel && travel.addEventListener("input", updateDaysBefore);
-  booking && booking.addEventListener("input", updateDaysBefore);
-  syncCabins(false);
-  updateDaysBefore();
+  function updateDays() {
+    if (!travel || !daysHint) return;
+    const t = new Date(travel.value + "T00:00");
+    if (Number.isNaN(t.getTime())) return (daysHint.textContent = "");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days = Math.round((t - today) / 86400000);
+    daysHint.textContent = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days > 1 ? "In " + days + " days" : "";
+  }
+
+  travel && travel.addEventListener("input", updateDays);
+  updateDays();
+  refreshRoute();
 })();

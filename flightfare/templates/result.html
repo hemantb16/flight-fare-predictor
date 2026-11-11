@@ -1,92 +1,99 @@
 {% extends "base.html" %}
-{% block title %}{{ origin.name }} → {{ destination.name }} · {{ estimate.fare|eur }} · FareCast{% endblock %}
+{% block title %}{{ origin.city }} → {{ destination.city }} from {{ best.estimate.fare|eur }} · farecast{% endblock %}
+
+{% macro bars(rows) -%}
+  <ul class="bars">
+    {% for r in rows %}
+      <li class="{{ 'selected' if r.selected }}">
+        <span class="bar-label">{{ caller(r) }}</span>
+        <span class="bar" aria-hidden="true"><span style="width: {{ r.pct }}%"></span></span>
+        <span class="bar-value">{{ r.fare|eur }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{%- endmacro %}
 
 {% block content %}
 <section class="container result">
   <a class="back-link" href="{{ url_for('index', **query) }}">← Edit search</a>
 
-  <article class="card fare-card">
-    <div class="route">
-      <div class="endpoint">
-        <span class="code">{{ origin.code }}</span>
-        <span class="city">{{ origin.name }}</span>
+  <article class="ticket pass">
+    <div class="pass-main">
+      <div class="pass-route">
+        <div class="endpoint">
+          <span class="code">{{ origin.code }}</span>
+          <span class="city">{{ origin.city }}</span>
+        </div>
+        <div class="flight-path" aria-hidden="true">
+          <span class="path-line"></span>
+          <svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>
+        </div>
+        <div class="endpoint end">
+          <span class="code">{{ destination.code }}</span>
+          <span class="city">{{ destination.city }}</span>
+        </div>
       </div>
-      <div class="flight-line" aria-hidden="true">
-        <span class="duration">{{ duration }}</span>
-        <span class="line"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
-        <span class="stops">{{ stops_label }}</span>
-      </div>
-      <div class="endpoint end">
-        <span class="code">{{ destination.code }}</span>
-        <span class="city">{{ destination.name }}</span>
-      </div>
+
+      <dl class="pass-details">
+        <div><dt>Date</dt><dd>{{ search.travel_date.strftime('%a %d %b %Y') }}</dd></div>
+        <div><dt>Cabin</dt><dd>{{ cabin_label }}</dd></div>
+        <div><dt>Passengers</dt><dd>{{ search.passengers }}</dd></div>
+        <div><dt>Booking</dt><dd>{{ search.days_before }} day{{ '' if search.days_before == 1 else 's' }} ahead</dd></div>
+        <div><dt>Distance</dt><dd>{{ '{:,}'.format(distance) }} km</dd></div>
+        <div><dt>Route</dt><dd>{{ route|capitalize }}</dd></div>
+      </dl>
     </div>
 
-    <div class="price-block">
-      <p class="eyebrow">Estimated fare per passenger</p>
-      <p class="price" data-testid="fare">{{ estimate.fare|eur }}</p>
-      <p class="range">Likely range {{ estimate.low|eur }} – {{ estimate.high|eur }}</p>
-      {% if passengers > 1 %}
-        <p class="total">{{ passengers }} passengers · <strong>{{ total|eur }}</strong> total</p>
+    <div class="pass-stub">
+      <p class="eyebrow">Cheapest estimate</p>
+      <p class="price" data-testid="fare">{{ best.estimate.fare|eur }}</p>
+      <p class="stub-line">{{ best.airline.name }} · {{ stops_labels[best.option.stops] }}{% if best.option.via %} via {{ best.option.via|join(', ') }}{% endif %}</p>
+      <p class="stub-line muted">Likely {{ best.estimate.low|eur }}–{{ best.estimate.high|eur }} per person</p>
+      {% if search.passengers > 1 %}
+        <p class="stub-total">{{ search.passengers }} passengers · <strong>{{ total|eur }}</strong></p>
       {% endif %}
     </div>
-
-    <dl class="details">
-      <div><dt>Date</dt><dd>{{ trip.travel_date.strftime('%a, %d %b %Y') }}</dd></div>
-      <div><dt>Airline</dt><dd>{{ airline.name }}</dd></div>
-      <div><dt>Cabin</dt><dd>{{ cabin_label }}</dd></div>
-      <div><dt>Departure</dt><dd>{{ slot_label }}</dd></div>
-      <div><dt>Booked</dt><dd>{{ trip.days_before }} day{{ '' if trip.days_before == 1 else 's' }} ahead</dd></div>
-      <div><dt>Distance</dt><dd>{{ '{:,}'.format(distance) }} km · {{ route }}</dd></div>
-    </dl>
   </article>
 
-  {% if cheapest_airline.airline.code != airline.code and cheapest_airline.fare < estimate.fare * 0.97 %}
-    <div class="tip">
-      <strong>Tip:</strong> {{ cheapest_airline.airline.name }} is estimated at {{ cheapest_airline.fare|eur }} for the same trip, which saves about {{ (estimate.fare - cheapest_airline.fare)|eur }} per person.
+  <section class="board" aria-labelledby="flights-heading">
+    <div class="section-head">
+      <h2 id="flights-heading">Flights</h2>
+      <p>{{ itineraries|length }} option{{ '' if itineraries|length == 1 else 's' }} · {{ nonstop_carriers }} non-stop carrier{{ '' if nonstop_carriers == 1 else 's' }}</p>
     </div>
-  {% endif %}
+    <ol class="flights">
+      {% for i in itineraries %}
+        {% if loop.index == visible + 1 %}</ol><details class="more-flights"><summary>Show {{ itineraries|length - visible }} more</summary><ol class="flights" start="{{ visible + 1 }}">{% endif %}
+        <li class="{{ 'best' if loop.first }}">
+          <div class="f-airline">
+            <span class="f-code">{{ i.option.airline }}</span>
+            <span class="f-name">{{ i.airline.name }}{% if loop.first %} <em class="tag">Cheapest</em>{% endif %}</span>
+          </div>
+          <div class="f-route">
+            <span>{{ stops_labels[i.option.stops] }}{% if i.option.via %} · via {{ i.option.via|join(', ') }}{% endif %}</span>
+            <span class="muted">{{ i.option.duration }} · {{ slot_labels[i.time_slot].split(' (')[0] }}</span>
+          </div>
+          <div class="f-price">{{ i.estimate.fare|eur }}</div>
+        </li>
+      {% endfor %}
+    </ol>
+    {% if itineraries|length > visible %}</details>{% endif %}
+  </section>
 
   <div class="insights">
-    <section class="card insight">
-      <h2>Airlines on this route</h2>
-      <ul class="bars">
-        {% for r in airline_rows %}
-          <li class="{{ 'selected' if r.selected }}">
-            <span class="bar-label">{{ r.airline.name }}</span>
-            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
-            <span class="bar-value">{{ r.fare|eur }}</span>
-          </li>
-        {% endfor %}
-      </ul>
+    <section>
+      <h2>Nearby dates</h2>
+      {% call(r) bars(insights.dates) %}{{ r.date.strftime('%a %d %b') }}{% endcall %}
     </section>
-
-    <section class="card insight">
-      <h2>Nearby travel dates</h2>
-      <ul class="bars">
-        {% for r in date_rows %}
-          <li class="{{ 'selected' if r.selected }}">
-            <span class="bar-label">{{ r.date.strftime('%a %d %b') }}</span>
-            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
-            <span class="bar-value">{{ r.fare|eur }}</span>
-          </li>
-        {% endfor %}
-      </ul>
-    </section>
-
-    <section class="card insight">
+    <section>
       <h2>When to book</h2>
-      <ul class="bars">
-        {% for r in window_rows %}
-          <li>
-            <span class="bar-label">{{ r.days }} day{{ '' if r.days == 1 else 's' }} before</span>
-            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
-            <span class="bar-value">{{ r.fare|eur }}</span>
-          </li>
-        {% endfor %}
-      </ul>
+      {% call(r) bars(insights.windows) %}{{ r.days }} day{{ '' if r.days == 1 else 's' }} before{% endcall %}
+    </section>
+    <section>
+      <h2>Time of day</h2>
+      {% call(r) bars(insights.slots) %}{{ r.label }}{% endcall %}
     </section>
   </div>
+  <p class="insight-note">Insights use the cheapest option: {{ best.airline.name }}, {{ stops_labels[best.option.stops]|lower }}.</p>
 
   <div class="actions">
     <a class="btn btn-primary" href="{{ url_for('index') }}">New search</a>

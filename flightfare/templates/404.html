@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Page not found · FareCast{% endblock %}
+{% block title %}Not found · farecast{% endblock %}
 {% block content %}
 <section class="container empty-state">
-  <h1>Off the flight path</h1>
-  <p>We couldn't find that page.</p>
+  <p class="code-big">404</p>
+  <h1>This gate doesn't exist.</h1>
   <a class="btn btn-primary" href="{{ url_for('index') }}">Back to search</a>
 </section>
 {% endblock %}

@@ -3,30 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Estimate one-way flight ticket prices from your route, dates, airline and cabin.">
-  <title>{% block title %}FareCast · Flight Fare Predictor{% endblock %}</title>
+  <meta name="description" content="Estimate one-way flight prices across 96 airports and 57 airlines, and see when and how to fly cheaper.">
+  <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#11110f" media="(prefers-color-scheme: dark)">
+  <title>{% block title %}farecast · flight fare estimates{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header class="site-header">
-    <div class="container header-inner">
-      <a class="brand" href="{{ url_for('index') }}">
-        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>
-        <span>FareCast</span>
-      </a>
-      <nav class="header-nav"><a href="{{ url_for('index') }}">New search</a></nav>
-    </div>
+  <header class="site-header container">
+    <a class="wordmark" href="{{ url_for('index') }}">farecast<span class="dot" aria-hidden="true">.</span></a>
+    <nav><a href="{{ url_for('index') }}">New search</a></nav>
   </header>
 
   <main>
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="site-footer">
-    <div class="container">
-      <p>Estimates come from a machine-learning model trained on simulated fares. Airlines shown are fictional, and prices are indicative only.</p>
-    </div>
+  <footer class="site-footer container">
+    <p>Fares are estimates from a machine-learning model trained on simulated prices for real routes and airlines. They are not live offers. Always check with the airline before booking.</p>
   </footer>
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </body>

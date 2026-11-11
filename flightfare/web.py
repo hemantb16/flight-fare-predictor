@@ -6,23 +6,18 @@ from datetime import date, timedelta
 
 from flask import Flask, jsonify, render_template, request
 
-from .catalog import AIRLINES, CABINS, CITIES, STOPS, TIME_SLOTS, distance_km, route_type
-from .features import Trip
+from .catalog import AIRLINES, AIRPORTS, CABINS, STOPS, TIME_SLOTS, distance_km, route_type
 from .model import FarePredictor
-from .validation import MAX_DAYS_AHEAD, MAX_PASSENGERS, parse_trip
+from .network import cabins_for, route_options
+from .search import insights, price_itineraries
+from .validation import MAX_DAYS_AHEAD, MAX_PASSENGERS, STOP_FILTERS, parse_search, resolve_airport
 
-BOOKING_WINDOWS = [1, 7, 14, 30, 60, 90]
+FORM_FIELDS = ("origin", "destination", "travel_date", "cabin", "airline", "stops", "time_slot", "passengers")
+VISIBLE_RESULTS = 8
 
 
 def format_eur(value: float) -> str:
-    return f"€{value:,.0f}" if value >= 100 else f"€{value:,.2f}"
-
-
-def estimate_duration(distance: float, stops: int) -> str:
-    """Rough block time: cruise at ~820 km/h plus taxi/climb and layovers."""
-    minutes = int(distance / 820 * 60 + 35 + stops * 110)
-    hours, mins = divmod(round(minutes / 5) * 5, 60)
-    return f"{hours}h {mins:02d}m"
+    return f"€{value:,.0f}"
 
 
 def create_app(predictor: FarePredictor | None = None) -> Flask:
@@ -35,26 +30,25 @@ def create_app(predictor: FarePredictor | None = None) -> Flask:
 
     @app.context_processor
     def inject_catalog():
-        cities = sorted(CITIES.values(), key=lambda c: (c.country != "Germany", c.name))
+        airports = sorted(AIRPORTS.values(), key=lambda a: (a.country != "Germany", a.country, a.city))
         return {
-            "cities": cities,
-            "airlines": list(AIRLINES.values()),
+            "airports": airports,
+            "airlines": sorted(AIRLINES.values(), key=lambda a: a.name),
             "cabins": CABINS,
             "time_slots": TIME_SLOTS,
-            "stops_options": STOPS,
+            "stop_filters": STOP_FILTERS,
             "max_passengers": MAX_PASSENGERS,
         }
 
-    def form_defaults(today: date) -> dict:
+    def form_defaults() -> dict:
         return {
-            "origin": "BER",
-            "destination": "LHR",
-            "travel_date": (today + timedelta(days=30)).isoformat(),
-            "booking_date": today.isoformat(),
-            "airline": "SC",
+            "origin": AIRPORTS["BER"].label,
+            "destination": AIRPORTS["LHR"].label,
+            "travel_date": (date.today() + timedelta(days=30)).isoformat(),
             "cabin": "economy",
-            "stops": "0",
-            "time_slot": "morning",
+            "airline": "any",
+            "stops": "any",
+            "time_slot": "any",
             "passengers": "1",
         }
 
@@ -71,86 +65,73 @@ def create_app(predictor: FarePredictor | None = None) -> Flask:
             status,
         )
 
+    def submitted_values() -> dict:
+        values = form_defaults()
+        values.update({k: v for k, v in request.args.items() if k in FORM_FIELDS})
+        return values
+
     @app.get("/")
     def index():
-        values = form_defaults(date.today())
-        # Allow "Edit search" links to pre-fill the form.
-        values.update({k: v for k, v in request.args.items() if k in values and v})
-        return render_form(values)
+        return render_form(submitted_values())
 
     @app.get("/result")
     def result():
-        parsed = parse_trip(request.args)
+        parsed = parse_search(request.args)
         if not parsed.ok:
-            values = form_defaults(date.today())
-            values.update({k: v for k, v in request.args.items() if k in values})
-            return render_form(values, parsed.errors, status=400)
+            return render_form(submitted_values(), parsed.errors, status=400)
 
-        trip, passengers = parsed.trip, parsed.passengers
+        search = parsed.search
         predictor = get_predictor()
-        estimate = predictor.predict(trip)
-        dist = distance_km(trip.origin, trip.destination)
-
-        # Same trip with every airline that sells this cabin.
-        airline_trips = [
-            Trip(**{**trip.__dict__, "airline": code})
-            for code, a in AIRLINES.items()
-            if trip.cabin in a.cabins
-        ]
-        airline_rows = sorted(
-            (
-                {"airline": AIRLINES[t.airline], "fare": e.fare, "selected": t.airline == trip.airline}
-                for t, e in zip(airline_trips, predictor.predict_many(airline_trips))
-            ),
-            key=lambda r: r["fare"],
-        )
-
-        # Nearby travel dates (same booking date), skipping dates in the past.
-        date_trips = [
-            Trip(**{**trip.__dict__, "travel_date": trip.travel_date + timedelta(days=offset)})
-            for offset in range(-3, 4)
-            if trip.travel_date + timedelta(days=offset) >= trip.booking_date
-        ]
-        date_rows = [
-            {"date": t.travel_date, "fare": e.fare, "selected": t.travel_date == trip.travel_date}
-            for t, e in zip(date_trips, predictor.predict_many(date_trips))
-        ]
-
-        # The same flight booked earlier or later.
-        window_trips = [
-            Trip(**{**trip.__dict__, "booking_date": trip.travel_date - timedelta(days=d)})
-            for d in BOOKING_WINDOWS
-        ]
-        window_rows = [
-            {"days": d, "fare": e.fare}
-            for d, e in zip(BOOKING_WINDOWS, predictor.predict_many(window_trips))
-        ]
-
-        for rows in (airline_rows, date_rows, window_rows):
-            top = max(r["fare"] for r in rows)
-            for r in rows:
-                r["pct"] = round(r["fare"] / top * 100)
+        itineraries = price_itineraries(predictor, search)
+        best = itineraries[0]
+        dist = distance_km(search.origin, search.destination)
+        query = {k: v for k, v in request.args.items() if k in FORM_FIELDS}
 
         return render_template(
             "result.html",
-            trip=trip,
-            passengers=passengers,
-            estimate=estimate,
-            total=estimate.fare * passengers,
-            origin=CITIES[trip.origin],
-            destination=CITIES[trip.destination],
-            airline=AIRLINES[trip.airline],
-            cabin_label=CABINS[trip.cabin],
-            slot_label=TIME_SLOTS[trip.time_slot],
-            stops_label=STOPS[trip.stops],
+            search=search,
+            best=best,
+            itineraries=itineraries,
+            visible=VISIBLE_RESULTS,
+            insights=insights(predictor, search, best),
+            total=best.estimate.fare * search.passengers,
+            origin=AIRPORTS[search.origin],
+            destination=AIRPORTS[search.destination],
+            cabin_label=CABINS[search.cabin],
+            slot_labels=TIME_SLOTS,
+            stops_labels=STOPS,
             distance=round(dist),
             route=route_type(dist),
-            duration=estimate_duration(dist, trip.stops),
-            airline_rows=airline_rows,
-            date_rows=date_rows,
-            window_rows=window_rows,
-            cheapest_airline=airline_rows[0],
-            query=request.args.to_dict(),
+            nonstop_carriers=len({i.option.airline for i in itineraries if i.option.stops == 0}),
+            query=query,
+        )
+
+    @app.get("/api/route")
+    def api_route():
+        """Airlines and cabins on a route, used by the form to narrow its menus."""
+        origin = resolve_airport(request.args.get("origin", ""))
+        destination = resolve_airport(request.args.get("destination", ""))
+        labels = {
+            "origin_label": AIRPORTS[origin].label if origin else None,
+            "destination_label": AIRPORTS[destination].label if destination else None,
+        }
+        if not origin or not destination or origin == destination:
+            return jsonify({"airlines": [], "cabins": [], "nonstop": False, **labels})
+        dist = distance_km(origin, destination)
+        options = route_options(origin, destination)
+        airlines = {}
+        for o in options:
+            entry = airlines.setdefault(o.airline, {"code": o.airline, "name": AIRLINES[o.airline].name, "stops": []})
+            entry["stops"].append(o.stops)
+        cabins = sorted({c for code in airlines for c in cabins_for(AIRLINES[code], dist)}, key=list(CABINS).index)
+        return jsonify(
+            {
+                "distance_km": round(dist),
+                "airlines": sorted(airlines.values(), key=lambda a: a["name"]),
+                "cabins": cabins,
+                "nonstop": any(o.stops == 0 for o in options),
+                **labels,
+            }
         )
 
     @app.post("/api/predict")
@@ -158,30 +139,38 @@ def create_app(predictor: FarePredictor | None = None) -> Flask:
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"errors": {"body": "Send a JSON object."}}), 400
-        parsed = parse_trip(payload)
+        parsed = parse_search(payload)
         if not parsed.ok:
             return jsonify({"errors": parsed.errors}), 400
-        trip = parsed.trip
-        estimate = get_predictor().predict(trip)
+        search = parsed.search
+        itineraries = price_itineraries(get_predictor(), search)
+
+        def as_json(i):
+            return {
+                "airline": i.option.airline,
+                "airline_name": i.airline.name,
+                "stops": i.option.stops,
+                "via": list(i.option.via),
+                "duration": i.option.duration,
+                "time_slot": i.time_slot,
+                "fare": i.estimate.fare,
+                "range": {"low": i.estimate.low, "high": i.estimate.high},
+            }
+
+        best = itineraries[0]
         return jsonify(
             {
                 "currency": "EUR",
-                "fare_per_passenger": estimate.fare,
-                "range": {"low": estimate.low, "high": estimate.high},
-                "passengers": parsed.passengers,
-                "total": round(estimate.fare * parsed.passengers, 2),
-                "trip": {
-                    "origin": trip.origin,
-                    "destination": trip.destination,
-                    "travel_date": trip.travel_date.isoformat(),
-                    "booking_date": trip.booking_date.isoformat(),
-                    "days_before": trip.days_before,
-                    "distance_km": round(distance_km(trip.origin, trip.destination)),
-                    "airline": trip.airline,
-                    "cabin": trip.cabin,
-                    "stops": trip.stops,
-                    "time_slot": trip.time_slot,
-                },
+                "origin": search.origin,
+                "destination": search.destination,
+                "travel_date": search.travel_date.isoformat(),
+                "days_before": search.days_before,
+                "distance_km": round(distance_km(search.origin, search.destination)),
+                "cabin": search.cabin,
+                "passengers": search.passengers,
+                "cheapest": as_json(best),
+                "total": round(best.estimate.fare * search.passengers, 2),
+                "itineraries": [as_json(i) for i in itineraries],
             }
         )
 
