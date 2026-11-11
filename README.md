@@ -1,4 +1,4 @@
-# farecast. Flight Fare Predictor
+# Farecast. Flight Fare Predictor
 
 **What should this flight cost?** farecast estimates one-way ticket prices across **96 real airports** and **57 real airlines**. Enter a route, date, cabin and number of passengers. It lists every airline that plausibly flies the route, non-stop or through its hub, with an estimated fare for each. It also shows how the price moves with nearby dates, how far ahead you book, and time of day.
 
