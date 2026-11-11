@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ origin.name }} → {{ destination.name }} · {{ estimate.fare|eur }} · FareCast{% endblock %}
+
+{% block content %}
+<section class="container result">
+  <a class="back-link" href="{{ url_for('index', **query) }}">← Edit search</a>
+
+  <article class="card fare-card">
+    <div class="route">
+      <div class="endpoint">
+        <span class="code">{{ origin.code }}</span>
+        <span class="city">{{ origin.name }}</span>
+      </div>
+      <div class="flight-line" aria-hidden="true">
+        <span class="duration">{{ duration }}</span>
+        <span class="line"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
+        <span class="stops">{{ stops_label }}</span>
+      </div>
+      <div class="endpoint end">
+        <span class="code">{{ destination.code }}</span>
+        <span class="city">{{ destination.name }}</span>
+      </div>
+    </div>
+
+    <div class="price-block">
+      <p class="eyebrow">Estimated fare per passenger</p>
+      <p class="price" data-testid="fare">{{ estimate.fare|eur }}</p>
+      <p class="range">Likely range {{ estimate.low|eur }} – {{ estimate.high|eur }}</p>
+      {% if passengers > 1 %}
+        <p class="total">{{ passengers }} passengers · <strong>{{ total|eur }}</strong> total</p>
+      {% endif %}
+    </div>
+
+    <dl class="details">
+      <div><dt>Date</dt><dd>{{ trip.travel_date.strftime('%a, %d %b %Y') }}</dd></div>
+      <div><dt>Airline</dt><dd>{{ airline.name }}</dd></div>
+      <div><dt>Cabin</dt><dd>{{ cabin_label }}</dd></div>
+      <div><dt>Departure</dt><dd>{{ slot_label }}</dd></div>
+      <div><dt>Booked</dt><dd>{{ trip.days_before }} day{{ '' if trip.days_before == 1 else 's' }} ahead</dd></div>
+      <div><dt>Distance</dt><dd>{{ '{:,}'.format(distance) }} km · {{ route }}</dd></div>
+    </dl>
+  </article>
+
+  {% if cheapest_airline.airline.code != airline.code and cheapest_airline.fare < estimate.fare * 0.97 %}
+    <div class="tip">
+      <strong>Tip:</strong> {{ cheapest_airline.airline.name }} is estimated at {{ cheapest_airline.fare|eur }} for the same trip, which saves about {{ (estimate.fare - cheapest_airline.fare)|eur }} per person.
+    </div>
+  {% endif %}
+
+  <div class="insights">
+    <section class="card insight">
+      <h2>Airlines on this route</h2>
+      <ul class="bars">
+        {% for r in airline_rows %}
+          <li class="{{ 'selected' if r.selected }}">
+            <span class="bar-label">{{ r.airline.name }}</span>
+            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
+            <span class="bar-value">{{ r.fare|eur }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card insight">
+      <h2>Nearby travel dates</h2>
+      <ul class="bars">
+        {% for r in date_rows %}
+          <li class="{{ 'selected' if r.selected }}">
+            <span class="bar-label">{{ r.date.strftime('%a %d %b') }}</span>
+            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
+            <span class="bar-value">{{ r.fare|eur }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card insight">
+      <h2>When to book</h2>
+      <ul class="bars">
+        {% for r in window_rows %}
+          <li>
+            <span class="bar-label">{{ r.days }} day{{ '' if r.days == 1 else 's' }} before</span>
+            <span class="bar"><span style="width: {{ r.pct }}%"></span></span>
+            <span class="bar-value">{{ r.fare|eur }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  <div class="actions">
+    <a class="btn btn-primary" href="{{ url_for('index') }}">New search</a>
+    <a class="btn btn-ghost" href="{{ url_for('index', **query) }}">Edit this search</a>
+  </div>
+</section>
+{% endblock %}

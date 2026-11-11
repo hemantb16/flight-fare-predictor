@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% macro field_error(name) -%}
+  {% if errors.get(name) %}<p class="field-error" id="{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro invalid(name) -%}
+  {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}
+{%- endmacro %}
+
+{% block content %}
+<section class="hero">
+  <div class="container">
+    <h1>Know the fare before you book.</h1>
+    <p class="lead">Enter your trip and get an instant price estimate, plus cheaper airlines, dates and booking windows.</p>
+  </div>
+</section>
+
+<section class="container">
+  <form class="card search-card" action="{{ url_for('result') }}" method="get" novalidate>
+    {% if errors %}
+      <div class="alert" role="alert">Please fix the highlighted fields and try again.</div>
+    {% endif %}
+
+    <fieldset class="route-row">
+      <legend class="sr-only">Route</legend>
+      <div class="field">
+        <label for="origin">From</label>
+        <select id="origin" name="origin" {{ invalid('origin') }}>
+          {% for c in cities %}
+            <option value="{{ c.code }}" {% if values.origin == c.code %}selected{% endif %}>{{ c.name }} ({{ c.code }})</option>
+          {% endfor %}
+        </select>
+        {{ field_error('origin') }}
+      </div>
+      <button type="button" class="swap" id="swap" aria-label="Swap departure and arrival cities" title="Swap cities">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3m3 3-3 3M17 17H6l3 3m-3-3 3-3"/></svg>
+      </button>
+      <div class="field">
+        <label for="destination">To</label>
+        <select id="destination" name="destination" {{ invalid('destination') }}>
+          {% for c in cities %}
+            <option value="{{ c.code }}" {% if values.destination == c.code %}selected{% endif %}>{{ c.name }} ({{ c.code }})</option>
+          {% endfor %}
+        </select>
+        {{ field_error('destination') }}
+      </div>
+    </fieldset>
+
+    <div class="grid">
+      <div class="field">
+        <label for="travel_date">Travel date</label>
+        <input type="date" id="travel_date" name="travel_date" value="{{ values.travel_date }}" min="{{ today }}" max="{{ max_date }}" required {{ invalid('travel_date') }}>
+        {{ field_error('travel_date') }}
+      </div>
+      <div class="field">
+        <label for="booking_date">Booking date</label>
+        <input type="date" id="booking_date" name="booking_date" value="{{ values.booking_date }}" {{ invalid('booking_date') }}>
+        <p class="hint" id="days-before" aria-live="polite"></p>
+        {{ field_error('booking_date') }}
+      </div>
+      <div class="field">
+        <label for="time_slot">Departure time</label>
+        <select id="time_slot" name="time_slot" {{ invalid('time_slot') }}>
+          {% for key, label in time_slots.items() %}
+            <option value="{{ key }}" {% if values.time_slot == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error('time_slot') }}
+      </div>
+      <div class="field">
+        <label for="airline">Airline</label>
+        <select id="airline" name="airline" {{ invalid('airline') }}>
+          {% for a in airlines %}
+            <option value="{{ a.code }}" data-cabins="{{ a.cabins|join(',') }}" {% if values.airline == a.code %}selected{% endif %}>{{ a.name }} · {{ a.kind }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error('airline') }}
+      </div>
+      <div class="field">
+        <label for="cabin">Cabin class</label>
+        <select id="cabin" name="cabin" {{ invalid('cabin') }}>
+          {% for key, label in cabins.items() %}
+            <option value="{{ key }}" {% if values.cabin == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error('cabin') }}
+      </div>
+      <div class="field">
+        <span class="label" id="stops-label">Stops</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="stops-label">
+          {% for key, label in stops_options.items() %}
+            <label><input type="radio" name="stops" value="{{ key }}" {% if values.stops|string == key|string %}checked{% endif %}><span>{{ label }}</span></label>
+          {% endfor %}
+        </div>
+        {{ field_error('stops') }}
+      </div>
+      <div class="field">
+        <label for="passengers">Passengers</label>
+        <input type="number" id="passengers" name="passengers" min="1" max="{{ max_passengers }}" value="{{ values.passengers }}" inputmode="numeric" {{ invalid('passengers') }}>
+        {{ field_error('passengers') }}
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg">Estimate fare</button>
+  </form>
+
+  <ul class="features">
+    <li><strong>Instant estimate</strong><span>A gradient-boosted model scores your exact trip in milliseconds.</span></li>
+    <li><strong>Find savings</strong><span>Compare airlines, nearby dates and how far ahead to book.</span></li>
+    <li><strong>Private by design</strong><span>No accounts, no trackers, no third-party requests.</span></li>
+  </ul>
+</section>
+{% endblock %}
